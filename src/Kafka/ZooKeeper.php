@@ -28,42 +28,48 @@ namespace Kafka;
 
 class ZooKeeper implements \Kafka\ClusterMetaData
 {
+    // {{{ consts private variable
+    /**
+     *  path: prefix node
+     */
+    private $prefix = "";
+    // }}}
     // {{{ consts
 
     /**
      * get all broker
      */
-    const BROKER_PATH = '/brokers/ids';
+    const BROKER_PATH = '%s/brokers/ids';
 
     /**
      * get broker detail
      */
-    const BROKER_DETAIL_PATH = '/brokers/ids/%d';
+    const BROKER_DETAIL_PATH = '%s/brokers/ids/%d';
 
     /**
      * get topic detail
      */
-    const TOPIC_PATCH = '/brokers/topics/%s';
+    const TOPIC_PATCH = '%s/brokers/topics/%s';
 
     /**
      * get partition state
      */
-    const PARTITION_STATE = '/brokers/topics/%s/partitions/%d/state';
+    const PARTITION_STATE = '%s/brokers/topics/%s/partitions/%d/state';
 
     /**
      * register consumer
      */
-    const REG_CONSUMER = '/consumers/%s/ids';
+    const REG_CONSUMER = '%s/consumers/%s/ids';
 
     /**
      * list consumer
      */
-    const LIST_CONSUMER = '/consumers/%s/ids';
+    const LIST_CONSUMER = '%s/consumers/%s/ids';
 
     /**
      * partition owner
      */
-    const PARTITION_OWNER = '/consumers/%s/owners/%s';
+    const PARTITION_OWNER = '%s/consumers/%s/owners/%s';
 
     // }}}
     // {{{ members
@@ -100,12 +106,15 @@ class ZooKeeper implements \Kafka\ClusterMetaData
      * @param $hostList
      * @param null $timeout
      */
-    public function __construct($hostList, $timeout = null)
+    public function __construct($hostList, $timeout = null, $zookeeperPathPrefix = null )
     {
         if (!is_null($timeout) && is_numeric($timeout)) {
             $this->zookeeper = new \ZooKeeper($hostList, null, $timeout);
         } else {
             $this->zookeeper = new \ZooKeeper($hostList);
+        }
+        if(!empty($zookeeperPathPrefix)) {
+            $this->setPathPrefix($zookeeperPathPrefix);
         }
     }
 
@@ -124,7 +133,8 @@ class ZooKeeper implements \Kafka\ClusterMetaData
         if (count($this->brokers) == 0) {
             // Populate broker cache
             $result = array();
-            $lists = $this->zookeeper->getChildren(self::BROKER_PATH);
+            $path = sprintf(self::BROKER_PATH, $this->prefix);
+            $lists = $this->zookeeper->getChildren($path);
             if (!empty($lists)) {
                 foreach ($lists as $brokerId) {
                     $brokerDetail = $this->getBrokerDetail($brokerId);
@@ -152,7 +162,7 @@ class ZooKeeper implements \Kafka\ClusterMetaData
     public function getBrokerDetail($brokerId)
     {
         $result = array();
-        $path = sprintf(self::BROKER_DETAIL_PATH, (int) $brokerId);
+        $path = sprintf(self::BROKER_DETAIL_PATH, $this->prefix, (int) $brokerId);
         if ($this->zookeeper->exists($path)) {
             $result = $this->zookeeper->get($path);
             if (!$result) {
@@ -178,7 +188,7 @@ class ZooKeeper implements \Kafka\ClusterMetaData
     public function getTopicDetail($topicName)
     {
         $result = array();
-        $path = sprintf(self::TOPIC_PATCH, (string) $topicName);
+        $path = sprintf(self::TOPIC_PATCH, $this->prefix, (string) $topicName);
         if ($this->zookeeper->exists($path)) {
             $result = $this->zookeeper->get($path);
             if (!$result) {
@@ -204,7 +214,7 @@ class ZooKeeper implements \Kafka\ClusterMetaData
     public function getPartitionState($topicName, $partitionId = 0)
     {
         $result = array();
-        $path = sprintf(self::PARTITION_STATE, (string) $topicName, (int) $partitionId);
+        $path = sprintf(self::PARTITION_STATE, $this->prefix, (string) $topicName, (int) $partitionId);
         if ($this->zookeeper->exists($path)) {
             $result = $this->zookeeper->get($path);
             if (!$result) {
@@ -233,7 +243,7 @@ class ZooKeeper implements \Kafka\ClusterMetaData
             return;
         }
 
-        $path = sprintf(self::REG_CONSUMER, (string) $groupId);
+        $path = sprintf(self::REG_CONSUMER, $this->prefix, (string) $groupId);
         $subData = array();
         foreach ($topics as $topic) {
             $subData[$topic] = 1;
@@ -268,7 +278,7 @@ class ZooKeeper implements \Kafka\ClusterMetaData
      */
     public function listConsumer($groupId)
     {
-        $path = sprintf(self::LIST_CONSUMER, (string) $groupId);
+        $path = sprintf(self::LIST_CONSUMER, $this->prefix, (string) $groupId);
         return $this->zookeeper->getChildren($path);
     }
 
@@ -291,7 +301,7 @@ class ZooKeeper implements \Kafka\ClusterMetaData
 
         $topics = array();
         foreach ($consumers as $consumerId) {
-            $path = sprintf(self::REG_CONSUMER, (string) $groupId) . '/' . $consumerId;
+            $path = sprintf(self::REG_CONSUMER, $this->prefix, (string) $groupId) . '/' . $consumerId;
             if (!$this->zookeeper->exists($path)) {
                 continue;
             }
@@ -322,7 +332,7 @@ class ZooKeeper implements \Kafka\ClusterMetaData
      */
     public function addPartitionOwner($groupId, $topicName, $partitionId, $consumerId)
     {
-        $path = sprintf(self::PARTITION_OWNER, (string) $groupId, $topicName);
+        $path = sprintf(self::PARTITION_OWNER, $this->prefix, (string) $groupId, $topicName);
         if (!$this->zookeeper->exists($path)) {
             $this->makeZkPath($path);
         }
@@ -380,6 +390,24 @@ class ZooKeeper implements \Kafka\ClusterMetaData
             )
         );
         return $this->zookeeper->create($path, $value, $params, $flag);
+    }
+
+    // }}}
+    // {{{ public function setPathPrefix($prefix)
+
+    /**
+     * Wath event callback warper
+     * @param int $event_type
+     * @param int $stat
+     * @param string $path
+     * @return the return of the callback or null
+     */
+    public function setPathPrefix($prefix)
+    {
+        if(empty($prefix)) {
+            return ;
+        }
+        $this->prefix = rtrim($prefix);
     }
 
     // }}}
